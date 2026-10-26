@@ -150,7 +150,7 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
 
   void _pickColorAt(img.Point p) {
     final im = _image!;
-    final c = im.getPixel(p.x, p.y);
+    final c = im.getPixel(p.x.toInt(), p.y.toInt());
     setState(() {
       _fillColor = img.ColorUint8.rgba(c.r.toInt(), c.g.toInt(), c.b.toInt(), 255);
     });
@@ -158,7 +158,7 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
 
   Future<void> _fillAt(img.Point p) async {
     final im = _image!;
-    _floodFill(im, p.x, p.y, _fillColor, _threshold);
+    _floodFill(im, p.x.toInt(), p.y.toInt(), _fillColor, _threshold);
     await _rebuildUiImage();
   }
 
@@ -234,7 +234,12 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
   @override
   Widget build(BuildContext context) {
     final uiIm = _uiImage;
-    final fillColor = Color.fromARGB(255, _fillColor.r, _fillColor.g, _fillColor.b);
+    final fillColor = Color.fromARGB(
+      255,
+      _fillColor.r.toInt(),
+      _fillColor.g.toInt(),
+      _fillColor.b.toInt(),
+    );
 
     return Scaffold(
       appBar: AppBar(
