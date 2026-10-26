@@ -1,10 +1,11 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/gestures.dart';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 
 void main() {
@@ -37,18 +38,13 @@ class CleanerHomePage extends StatefulWidget {
 }
 
 class _CleanerHomePageState extends State<CleanerHomePage> {
-  img.Image? _image; // editable pixels
-  ui.Image? _uiImage; // for rendering
-  Uint8List? _bytes; // original loaded bytes (optional)
+  img.Image? _image;
+  ui.Image? _uiImage;
   String? _fileName;
 
-  // Color used for fill (default: white)
   img.ColorUint8 _fillColor = img.ColorUint8.rgba(255, 255, 255, 255);
-
-  // Flood fill similarity threshold (0..255). Higher => more tolerant.
   int _threshold = 35;
 
-  // For mapping widget coords to image coords:
   final GlobalKey _imageKey = GlobalKey();
 
   Future<void> _openImage() async {
@@ -69,11 +65,9 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
       return;
     }
 
-    // Ensure RGBA 8-bit
     final rgba = decoded.convert(numChannels: 4);
 
     setState(() {
-      _bytes = data;
       _fileName = file.name;
       _image = rgba;
     });
@@ -82,9 +76,10 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
   }
 
   Future<void> _saveAs() async {
-    if (_image == null) return;
+    final im = _image;
+    if (im == null) return;
 
-    final out = img.encodePng(_image!);
+    final out = img.encodePng(im);
     final path = await FilePicker.platform.saveFile(
       dialogTitle: 'Save cleaned image',
       fileName: _suggestOutName(_fileName),
@@ -93,19 +88,17 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
     );
     if (path == null) return;
 
-    final bytes = Uint8List.fromList(out);
-    await FilePicker.platform.writeFile(path: path, bytes: bytes);
+    final file = File(path);
+    await file.writeAsBytes(out);
 
     _showSnack('Saved: $path');
   }
 
   String _suggestOutName(String? name) {
     if (name == null || name.trim().isEmpty) return 'cleaned.png';
-    final n = name;
-    final dot = n.lastIndexOf('.');
-    final base = dot > 0 ? n.substring(0, dot) : n;
+    final dot = name.lastIndexOf('.');
+    final base = dot > 0 ? name.substring(0, dot) : name;
     return '${base}_cleaned.png';
-    // always saving as png for lossless
   }
 
   Future<void> _rebuildUiImage() async {
@@ -126,9 +119,7 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
     );
   }
 
-  /// Convert local pointer position (inside RawImage widget) to image pixel coords.
-  /// Returns null if out of bounds or image not loaded.
-  img.Point<int>? _toImagePixel(Offset localPos) {
+  img.Point? _toImagePixel(Offset localPos) {
     final uiIm = _uiImage;
     final im = _image;
     final box = _imageKey.currentContext?.findRenderObject() as RenderBox?;
@@ -138,7 +129,6 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
     final h = box.size.height;
     if (w <= 0 || h <= 0) return null;
 
-    // We render with BoxFit.contain. Need compute fitted rect.
     final imgW = uiIm.width.toDouble();
     final imgH = uiIm.height.toDouble();
 
@@ -155,10 +145,10 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
 
     final px = (xIn / scale).floor().clamp(0, im.width - 1);
     final py = (yIn / scale).floor().clamp(0, im.height - 1);
-    return img.Point<int>(px, py);
+    return img.Point(px, py);
   }
 
-  void _pickColorAt(img.Point<int> p) {
+  void _pickColorAt(img.Point p) {
     final im = _image!;
     final c = im.getPixel(p.x, p.y);
     setState(() {
@@ -166,34 +156,28 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
     });
   }
 
-  Future<void> _fillAt(img.Point<int> p) async {
+  Future<void> _fillAt(img.Point p) async {
     final im = _image!;
     _floodFill(im, p.x, p.y, _fillColor, _threshold);
     await _rebuildUiImage();
   }
 
-  /// Simple BFS flood fill with threshold (color distance).
-  /// Fills connected pixels similar to the start pixel.
   void _floodFill(img.Image im, int sx, int sy, img.ColorUint8 fill, int threshold) {
     final start = im.getPixel(sx, sy);
     final sr = start.r.toInt();
     final sg = start.g.toInt();
     final sb = start.b.toInt();
 
-    // If start already close to fill, still ok, but avoid infinite work
-    // We'll just proceed; it's safe.
-
     final w = im.width;
     final h = im.height;
 
-    final visited = Uint8List(w * h); // 0/1
+    final visited = Uint8List(w * h);
     int idx(int x, int y) => y * w + x;
 
     bool similar(img.Pixel px) {
       final dr = (px.r.toInt() - sr).abs();
       final dg = (px.g.toInt() - sg).abs();
       final db = (px.b.toInt() - sb).abs();
-      // max-channel distance
       return math.max(dr, math.max(dg, db)) <= threshold;
     }
 
@@ -212,7 +196,6 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
 
       im.setPixelRgba(x, y, fill.r, fill.g, fill.b, 255);
 
-      // 4-neighborhood
       if (x > 0) {
         final i = idx(x - 1, y);
         if (visited[i] == 0) {
@@ -251,7 +234,6 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
   @override
   Widget build(BuildContext context) {
     final uiIm = _uiImage;
-
     final fillColor = Color.fromARGB(255, _fillColor.r, _fillColor.g, _fillColor.b);
 
     return Scaffold(
@@ -273,7 +255,6 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
       ),
       body: Column(
         children: [
-          // Toolbar
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             child: Row(
@@ -298,10 +279,7 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
               ],
             ),
           ),
-
           const Divider(height: 1),
-
-          // Image area
           Expanded(
             child: Center(
               child: Container(
@@ -320,12 +298,9 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
                       final p = _toImagePixel(local);
                       if (p == null) return;
 
-                      // Left click => fill
                       if (event.buttons == kPrimaryMouseButton) {
                         await _fillAt(p);
-                      }
-                      // Right click => pick color
-                      else if (event.buttons == kSecondaryMouseButton) {
+                      } else if (event.buttons == kSecondaryMouseButton) {
                         _pickColorAt(p);
                       }
                     },
@@ -345,7 +320,6 @@ class _CleanerHomePageState extends State<CleanerHomePage> {
               ),
             ),
           ),
-
           const SizedBox(height: 6),
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
